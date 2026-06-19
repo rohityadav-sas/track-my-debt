@@ -4,10 +4,17 @@ import Debt from '../models/debt.model.js'
 export const createDebt = async (debtData: IDebt, session?: ClientSession) =>
   Debt.create([debtData], { session })
 
-export const getDebts = async (userId: number, chatId: number) =>
+export const getDebts = async (
+  userId: number,
+  chatId: number,
+  limit?: number,
+  skip?: number
+) =>
   Debt.find({ $or: [{ author: userId }, { partner: userId }], group: chatId })
     .populate<{ author: IUser; partner: IUser }>('author partner')
     .sort({ createdAt: -1 })
+    .skip(skip ?? 0)
+    .limit(limit ?? 0)
     .lean()
 
 export const getDebtSummary = async (userId: number, chatId: number) => {

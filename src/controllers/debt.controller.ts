@@ -16,6 +16,88 @@ import { format, getDisplayName, sendProcessingMessage } from '../utils/format.j
 
 
 
+const HISTORY_PAGE_SIZE = 15
+
+const getHistoryPage = async (user: IUser, chatId: number, page: number) => {
+  const currentPage = Math.max(1, page)
+  const skip = (currentPage - 1) * HISTORY_PAGE_SIZE
+  const debts = await getDebts(
+    user._id,
+    chatId,
+    HISTORY_PAGE_SIZE + 1,
+    skip
+  )
+  const hasNextPage = debts.length > HISTORY_PAGE_SIZE
+  const pageDebts = debts.slice(0, HISTORY_PAGE_SIZE)
+
+  if (pageDebts.length === 0) {
+    return {
+      text: format.info('No History', 'No debt history found.'),
+      options: undefined,
+    }
+  }
+
+  const message = pageDebts
+    .map((debt, idx) => {
+      const isAuthor = debt.author._id === user._id
+      const partner = isAuthor ? debt.partner : debt.author
+      const name = getDisplayName(partner)
+      const displayAmount = isAuthor ? debt.amount : -debt.amount
+      const sign = displayAmount > 0 ? '+' : ''
+      const symbol =
+        displayAmount === 0
+          ? format.icons.neutral
+          : displayAmount > 0
+            ? format.icons.positive
+            : format.icons.negative
+      const date = debt.createdAt
+        ? new Date(debt.createdAt)
+          .toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+          })
+          .replace(/ /g, '-')
+        : 'N/A'
+
+      return (
+        `${skip + idx + 1}. ${symbol} ${format.bold(name)} -> ${format.code(
+          sign + displayAmount
+        )}\n` + `   ${format.italic(debt.description)} | ${date}`
+      )
+    })
+    .join('\n\n')
+
+  const buttons = []
+  if (currentPage > 1) {
+    buttons.push({
+      text: 'Previous',
+      callback_data: `history:${user._id}:${currentPage - 1}`,
+    })
+  }
+  if (hasNextPage) {
+    buttons.push({
+      text: 'Next',
+      callback_data: `history:${user._id}:${currentPage + 1}`,
+    })
+  }
+
+  return {
+    text:
+      format.bold(`${format.icons.history} Debt History`) +
+      ` ${format.italic(`Page ${currentPage}`)}` +
+      '\n\n' +
+      message,
+    options: buttons.length
+      ? {
+        reply_markup: {
+          inline_keyboard: [buttons],
+        },
+      }
+      : undefined,
+  }
+}
+
 
 const addDebt = async (update: Telegram.Message) => {
   const chatId = update.chat.id
@@ -189,51 +271,57 @@ const getHistory = async (update: Telegram.Message) => {
       )
     )
   }
-  const debts = await getDebts(author[0]._id, update.chat.id)
-  if (debts.length === 0) {
-    return await bot.editMessage(
-      update.chat.id,
-      msgId,
-      format.info('No History', 'No debt history found.')
+  const historyPage = await getHistoryPage(author[0], update.chat.id, 1)
+  return await bot.editMessage(
+    update.chat.id,
+    msgId,
+    historyPage.text,
+    historyPage.options
+  )
+}
+
+const changeHistoryPage = async (callbackQuery: Telegram.CallbackQuery) => {
+  if (!callbackQuery.data || !callbackQuery.message) return
+
+  const [, ownerIdStr, pageStr] = callbackQuery.data.split(':')
+  const ownerId = Number(ownerIdStr)
+  const page = Number(pageStr)
+
+  if (!Number.isInteger(ownerId) || !Number.isInteger(page) || page < 1) {
+    return await bot.answerCallbackQuery(
+      callbackQuery.id,
+      'Invalid history page.'
     )
   }
 
-  const message = debts
-    .map((debt, idx) => {
-      const isAuthor = debt.author._id === author[0]._id
-      const partner = isAuthor ? debt.partner : debt.author
-      const name = getDisplayName(partner)
-      const displayAmount = isAuthor ? debt.amount : -debt.amount
-      const sign = displayAmount > 0 ? '+' : ''
-      const symbol =
-        displayAmount === 0
-          ? format.icons.neutral
-          : displayAmount > 0
-            ? format.icons.positive
-            : format.icons.negative
-      const date = debt.createdAt
-        ? new Date(debt.createdAt)
-          .toLocaleDateString('en-GB', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric',
-          })
-          .replace(/ /g, '-')
-        : 'N/A'
+  if (callbackQuery.from.id !== ownerId) {
+    return await bot.answerCallbackQuery(
+      callbackQuery.id,
+      'Only the user who opened this history can change pages.'
+    )
+  }
 
-      return (
-        `${idx + 1}. ${symbol} ${format.bold(name)} → ${format.code(
-          sign + displayAmount
-        )}\n` + `   ${format.italic(debt.description)} | ${date}`
-      )
-    })
-    .join('\n\n')
+  await connectDB()
+  const [author] = await getUserByTelegramId([ownerId])
+  if (!author) {
+    return await bot.answerCallbackQuery(
+      callbackQuery.id,
+      'Please register before using history.'
+    )
+  }
 
-  await bot.editMessage(
-    update.chat.id,
-    msgId,
-    format.bold(`${format.icons.history} Debt History`) + '\n\n' + message
+  const historyPage = await getHistoryPage(
+    author,
+    callbackQuery.message.chat.id,
+    page
   )
+  await bot.editMessage(
+    callbackQuery.message.chat.id,
+    callbackQuery.message.message_id,
+    historyPage.text,
+    historyPage.options
+  )
+  await bot.answerCallbackQuery(callbackQuery.id)
 }
 
 const settleDebt = async (update: Telegram.Message) => {
@@ -467,4 +555,11 @@ const confirmSettle = async (callbackQuery: Telegram.CallbackQuery) => {
   }
 }
 
-export { addDebt, getDebt, getHistory, settleDebt, confirmSettle }
+export {
+  addDebt,
+  getDebt,
+  getHistory,
+  changeHistoryPage,
+  settleDebt,
+  confirmSettle,
+}

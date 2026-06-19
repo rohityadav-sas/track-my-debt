@@ -3,6 +3,7 @@ import bot from '../lib/bot.js'
 import { registerUser } from './register.controller.js'
 import {
   addDebt,
+  changeHistoryPage,
   confirmSettle,
   getDebt,
   getHistory,
@@ -17,6 +18,9 @@ const webhook = async (req: Request, res: Response) => {
   if (callbackQuery && callbackQuery.data) {
     if (callbackQuery.data.startsWith('settle_')) {
       await confirmSettle(callbackQuery)
+    }
+    if (callbackQuery.data.startsWith('history:')) {
+      await changeHistoryPage(callbackQuery)
     }
     return res.send()
   }

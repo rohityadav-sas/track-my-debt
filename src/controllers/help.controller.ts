@@ -15,7 +15,7 @@ ${format.bold('/get')}
 View your current debt summary with all partners.
 
 ${format.bold('/history')}
-View your complete debt transaction history.
+View your latest 15 debt transactions. Use the buttons to see older entries.
 
 ${format.bold('/settle @user')}
 Settle all debts with a specific user. The mentioned user must confirm the settlement.
